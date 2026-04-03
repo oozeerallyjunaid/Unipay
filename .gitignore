@@ -1,0 +1,14 @@
+# Never commit these to git
+.env.local
+.env*.local
+
+# Next.js build output
+.next/
+out/
+
+# Node modules (reinstall with: npm install)
+node_modules/
+
+# OS files
+.DS_Store
+.vercel
