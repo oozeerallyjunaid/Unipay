@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "UniPay XRPL Dev Server",
+      "runtimeExecutable": "/Users/junaid/.nvm/versions/node/v24.14.1/bin/node",
+      "runtimeArgs": ["./node_modules/.bin/next", "dev"],
+      "port": 3000,
+      "autoPort": false,
+      "cwd": "/Users/junaid/Desktop/unipay-xrpl"
+    }
+  ]
+}

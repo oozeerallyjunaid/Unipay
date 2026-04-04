@@ -7,32 +7,32 @@ export default function EscrowModal({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   return (
-    // Dark overlay behind the modal — clicking it closes the modal
+    // Overlay behind the modal — clicking it closes the modal
     <div
-      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
       onClick={onClose}
     >
       {/* Modal box — stopPropagation prevents clicks inside from closing it */}
       <div
-        className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 relative"
+        className="bg-white border border-gray-200 rounded-2xl max-w-lg w-full p-6 relative shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-500 hover:text-white text-xl"
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 text-xl"
         >
           ✕
         </button>
 
         {/* Header */}
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-12 h-12 rounded-xl bg-yellow-500/20 flex items-center justify-center text-2xl">
+          <div className="w-12 h-12 rounded-xl bg-[#EEF2FF] flex items-center justify-center text-2xl">
             🔒
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white">How Escrow Works</h2>
-            <p className="text-slate-400 text-sm">Smart contract protection on the XRP Ledger</p>
+            <h2 className="text-xl font-bold text-[#0D0D0D]">How Escrow Works</h2>
+            <p className="text-gray-400 text-sm">Smart contract protection on the XRP Ledger</p>
           </div>
         </div>
 
@@ -65,27 +65,27 @@ export default function EscrowModal({ isOpen, onClose }) {
             },
           ].map((item) => (
             <div key={item.step} className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-yellow-500/20 border border-yellow-500/40 flex items-center justify-center text-yellow-400 font-bold text-sm flex-shrink-0">
+              <div className="w-8 h-8 rounded-full bg-[#EEF2FF] border border-[#C7D2FE] flex items-center justify-center text-[#5C47FA] font-bold text-sm flex-shrink-0">
                 {item.step}
               </div>
               <div>
-                <p className="text-white font-semibold text-sm">
+                <p className="text-gray-900 font-semibold text-sm">
                   {item.icon} {item.title}
                 </p>
-                <p className="text-slate-400 text-sm mt-1">{item.desc}</p>
+                <p className="text-gray-500 text-sm mt-1">{item.desc}</p>
               </div>
             </div>
           ))}
         </div>
 
         {/* Key benefit callout */}
-        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-sm text-blue-300">
+        <div className="bg-[#EEF2FF] border border-[#C7D2FE] rounded-xl p-4 text-sm text-[#5C47FA]">
           <strong>Why this matters for students:</strong> Traditional wire transfers offer zero protection — once you send money abroad, it's gone. XRP Ledger escrow creates enforceable, programmable agreements without lawyers or banks.
         </div>
 
         <button
           onClick={onClose}
-          className="w-full mt-4 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl transition-all"
+          className="w-full mt-4 bg-[#5C47FA] hover:bg-[#4A38E0] text-white font-semibold py-3 rounded-full transition-all"
         >
           Got it!
         </button>

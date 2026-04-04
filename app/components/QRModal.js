@@ -19,8 +19,8 @@ export default function QRModal({ isOpen, onClose, address, title }) {
         width: 220,
         margin: 2,
         color: {
-          dark: "#FFFFFF",  // white dots
-          light: "#0F172A", // dark background (matches our slate-900)
+          dark: "#1F2937",  // dark dots
+          light: "#FFFFFF", // white background
         },
       });
       setQrDataUrl(url);
@@ -33,43 +33,43 @@ export default function QRModal({ isOpen, onClose, address, title }) {
 
   return (
     <div
-      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="bg-slate-900 border border-slate-700 rounded-2xl w-72 p-6 relative text-center"
+        className="bg-white border border-gray-200 rounded-2xl w-72 p-6 relative text-center shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-500 hover:text-white"
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-700"
         >
           ✕
         </button>
 
-        <p className="text-slate-400 text-xs uppercase tracking-widest mb-1">Wallet Address</p>
-        <p className="text-white font-semibold mb-4">{title}</p>
+        <p className="text-gray-400 text-xs uppercase tracking-widest mb-1">Wallet Address</p>
+        <p className="text-gray-900 font-semibold mb-4">{title}</p>
 
         {/* QR Code image */}
         {qrDataUrl ? (
           <img
             src={qrDataUrl}
             alt={`QR code for ${title}`}
-            className="w-52 h-52 mx-auto rounded-xl"
+            className="w-52 h-52 mx-auto rounded-xl border border-gray-100"
           />
         ) : (
-          <div className="w-52 h-52 mx-auto rounded-xl bg-slate-800 flex items-center justify-center text-slate-500 text-sm">
+          <div className="w-52 h-52 mx-auto rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-400 text-sm">
             Generating...
           </div>
         )}
 
         {/* Full address below the QR */}
-        <p className="font-mono text-xs text-slate-400 mt-4 break-all">{address}</p>
+        <p className="font-mono text-xs text-gray-400 mt-4 break-all">{address}</p>
 
         <button
           onClick={onClose}
-          className="w-full mt-4 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 rounded-xl transition-all text-sm"
+          className="w-full mt-4 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-semibold py-2 rounded-full transition-all text-sm"
         >
           Close
         </button>
