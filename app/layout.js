@@ -1,7 +1,10 @@
 // layout.js — Root wrapper for every page. Adds the NavBar and global styles.
 
 import "./globals.css";
+import { Inter } from "next/font/google";
 import NavBar from "./components/NavBar";
+
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
   title: "UniPay XRPL — Cross-Border Student Payments | Home",
@@ -15,7 +18,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className="bg-white text-gray-900 min-h-screen">
+      <body className={`${inter.className} bg-white text-gray-900 min-h-screen`}>
         {/* NavBar appears at the top of every page */}
         <NavBar />
         {children}
