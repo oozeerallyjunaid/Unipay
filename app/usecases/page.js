@@ -94,7 +94,7 @@ const colorMap = {
 
 export default function UseCasesPage() {
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#F5F4FF]">
       <div className="max-w-4xl mx-auto px-6 py-16 space-y-12">
 
         {/* Header */}

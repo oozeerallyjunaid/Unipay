@@ -10,10 +10,10 @@ export const metadata = {
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#F5F4FF]">
 
       {/* ====== HERO ====== */}
-      <section className="bg-white">
+      <section className="bg-[#F5F4FF]">
         <div className="max-w-5xl mx-auto px-6 py-24 text-center">
           <div className="inline-flex items-center gap-2 bg-[#EEF2FF] border border-[#C7D2FE] text-[#5C47FA] text-sm px-4 py-2 rounded-full mb-6 font-medium">
             <span className="w-2 h-2 rounded-full bg-[#5C47FA] animate-pulse" />
