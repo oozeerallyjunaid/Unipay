@@ -141,6 +141,18 @@ export default function DemoPage() {
     catch { /* ignore */ }
   }, [logs]);
 
+  // ── Persist escrow list (so disputed state survives role switches) ──────────
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("unipay-escrows");
+      if (saved) setEscrows(JSON.parse(saved));
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("unipay-escrows", JSON.stringify(escrows)); }
+    catch { /* ignore */ }
+  }, [escrows]);
+
   // Clear errors on role change
   useEffect(() => { setPayError(null); setRefundError(null); setResetError(null); }, [role]);
 
@@ -200,17 +212,23 @@ export default function DemoPage() {
 
   function addLog(entry) { setLogs((prev) => [entry, ...prev].slice(0, 30)); }
 
-  // ── Escrow state machine (unchanged) ──────────────────────────────────────
+  // ── Escrow state machine ───────────────────────────────────────────────────
   function handleEscrowCreated(sequence, createdAt, amt, ms) {
     setEscrows((prev) => [{ sequence, createdAt, amount: amt, milestone: ms, status: "locked" }, ...prev]);
   }
   function handleMarkDone(sequence) {
     setEscrows((prev) => prev.map((e) => e.sequence === sequence ? { ...e, status: "milestone_done" } : e));
   }
+  function handleEscrowDisputed(sequence) {
+    setEscrows((prev) => prev.map((e) => e.sequence === sequence ? { ...e, status: "disputed" } : e));
+  }
   function handleEscrowRemoved(sequence) {
     setEscrows((prev) => prev.filter((e) => e.sequence !== sequence));
   }
-  function clearEscrows() { setEscrows([]); }
+  function clearEscrows() {
+    setEscrows([]);
+    localStorage.removeItem("unipay-escrows");
+  }
 
   // ── Confetti (unchanged) ───────────────────────────────────────────────────
   async function fireConfetti() {
@@ -500,7 +518,7 @@ export default function DemoPage() {
           </div>
 
           {/* Section B: Escrow Payment */}
-          <div className="max-w-[480px] mx-auto mb-12">
+          <div className="max-w-[480px] mx-auto mb-6">
             <div className="flex items-center justify-between mb-3">
               <span className="font-bold text-[1rem] text-[#0D0D0D]">Escrow Payment</span>
               <span className="bg-[#EEF2FF] text-[#5C47FA] rounded-full text-[0.72rem] font-semibold px-2.5 py-0.5">
@@ -556,6 +574,30 @@ export default function DemoPage() {
           </div>
         </div>
 
+          {/* Section C: Your Active Escrows — customer can confirm or dispute */}
+          {escrows.length > 0 && (
+            <div className="max-w-[480px] mx-auto mb-12">
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-bold text-[1rem] text-[#0D0D0D]">Your Escrows</span>
+                <span className="bg-amber-50 text-amber-700 border border-amber-200 text-[0.72rem] font-semibold px-2.5 py-0.5 rounded-full">
+                  {escrows.length} active
+                </span>
+              </div>
+              <div className="bg-white border border-[#E5E7EB] rounded-[20px] p-5">
+                <EscrowList
+                  escrows={escrows}
+                  role="customer"
+                  onMarkDone={() => {}}
+                  onRelease={handleEscrowRemoved}
+                  onRaiseDispute={handleEscrowDisputed}
+                  onIssueRefund={() => {}}
+                  onLog={addLog}
+                  onBalanceRefresh={refreshBalances}
+                />
+              </div>
+            </div>
+          )}
+
         <TransactionLog logs={logs} setLogs={setLogs} />
         <Footer />
       </div>
@@ -568,7 +610,7 @@ export default function DemoPage() {
   return (
     <div className="min-h-screen bg-[#F5F4FF]">
       <div className="max-w-5xl mx-auto px-6">
-        <PageTop />
+        <PageTop onRefresh={handleManualRefresh} refreshing={refreshing} />
 
         {/* Back link + header */}
         <div className="max-w-[560px] mx-auto mb-6">
@@ -631,9 +673,11 @@ export default function DemoPage() {
             </div>
             <EscrowList
               escrows={escrows}
+              role="consultant"
               onMarkDone={handleMarkDone}
-              onRelease={(seq) => { handleEscrowRemoved(seq); refreshBalances(); }}
-              onDispute={(seq)  => { handleEscrowRemoved(seq); refreshBalances(); }}
+              onRelease={handleEscrowRemoved}
+              onRaiseDispute={() => {}}
+              onIssueRefund={(seq) => { handleEscrowRemoved(seq); refreshBalances(); }}
               onLog={addLog}
               onBalanceRefresh={refreshBalances}
             />

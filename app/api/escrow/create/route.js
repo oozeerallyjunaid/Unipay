@@ -2,10 +2,8 @@
 // Creates a time-locked escrow on the XRP Ledger.
 //
 // Time windows (demo):
-//   FinishAfter  = now + 30s  → Bob can release after this
-//   CancelAfter  = now + 90s  → Alice can dispute/cancel after this
-//
-// This means: 30–90s window where Bob should release. After 90s, Alice can get a refund.
+//   FinishAfter  = now + 10 min  → Consultant can release after this
+//   CancelAfter  = now + 48 h   → Student can dispute/cancel after this
 
 import { NextResponse } from "next/server";
 import * as xrpl from "xrpl";
@@ -41,8 +39,8 @@ export async function POST(request) {
       Account: studentWallet.address,
       Destination: consultantWallet.address,
       Amount: xrpl.xrpToDrops(amount),
-      FinishAfter: nowRipple + 30,  // Bob can release after 30 seconds
-      CancelAfter: nowRipple + 90,  // Alice can dispute/cancel after 90 seconds
+      FinishAfter: nowRipple + 600,    // Consultant can release after 10 minutes
+      CancelAfter: nowRipple + 172800, // Student can dispute after 48 hours
     };
 
     const prepared = await client.autofill(escrowCreateTx);
@@ -63,9 +61,9 @@ export async function POST(request) {
     return NextResponse.json({
       hash: result.result.hash,
       sequence: escrowSequence,
-      finishAfter: nowRipple + 30,
-      cancelAfter: nowRipple + 90,
-      message: `Escrow created! Release window: 30–90 seconds. After 90s, Alice can dispute.`,
+      finishAfter: nowRipple + 600,
+      cancelAfter: nowRipple + 172800,
+      message: `Escrow created! Release window opens in 10 minutes. Dispute window: 48 hours.`,
     });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
