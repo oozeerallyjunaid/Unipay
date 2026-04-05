@@ -1,5 +1,5 @@
 // app/demo/page.js — Live interactive demo page.
-// Architecture: Crossmark wallet signs all transactions client-side.
+// Architecture: Crossmark or GemWallet signs all transactions client-side.
 // No private keys on the server. All XRPL I/O uses xrpl.js in the browser.
 
 "use client";
@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import AnimatedMap from "../components/AnimatedMap";
 import EscrowList from "../components/EscrowList";
 import WalletConnect from "../components/WalletConnect";
-import { useCrossmark, extractTxHash, extractTxSequence } from "../../hooks/useCrossmark";
+import { useWallet } from "../../hooks/useWallet";
 
 // ── Demo constants ─────────────────────────────────────────────────────────────
 // These are the "story" wallet addresses used as payment destinations.
@@ -126,11 +126,12 @@ function AmountInput({ label, value, onChange, disabled }) {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function DemoPage() {
 
-  // ── Crossmark wallet hook ──────────────────────────────────────────────────
+  // ── Wallet hook (Crossmark or GemWallet, auto-detected) ───────────────────
   const {
-    isInstalled, address, isConnecting, error: cmError,
+    walletLabel, isDetecting, isInstalled,
+    address, isConnecting, error: cmError,
     connect, signAndSubmit, disconnect,
-  } = useCrossmark();
+  } = useWallet();
 
   // ── Role + wallet connection flow ──────────────────────────────────────────
   const [role,            setRole]            = useState(null);  // null | 'customer' | 'consultant'
@@ -243,12 +244,11 @@ export default function DemoPage() {
     setLoadingState("pay"); setPayError(null);
     try {
       const destination = role === "customer" ? CONSULTANT_ADDRESS : STUDENT_ADDRESS;
-      const result = await signAndSubmit({
+      const { hash } = await signAndSubmit({
         TransactionType: "Payment",
         Destination: destination,
         Amount: xrpToDrops(amount),
       });
-      const hash = extractTxHash(result);
       await fireConfetti();
       addLog({
         type: "payment",
@@ -268,15 +268,13 @@ export default function DemoPage() {
     setLoadingState("escrow"); setPayError(null);
     try {
       const now = Date.now() / 1000;
-      const result = await signAndSubmit({
+      const { hash, sequence } = await signAndSubmit({
         TransactionType: "EscrowCreate",
         Destination: CONSULTANT_ADDRESS,
         Amount: xrpToDrops(amount),
         FinishAfter: unixToRippleTime(now + 30),   // 30s demo window
         CancelAfter: unixToRippleTime(now + 90),   // 90s dispute window
       });
-      const hash     = extractTxHash(result);
-      const sequence = extractTxSequence(result);
       const ms       = milestone.trim() || "Service delivery";
       addLog({
         type: "escrow",
@@ -296,12 +294,11 @@ export default function DemoPage() {
   // Called by EscrowList when consultant clicks "Confirm & Release"
   async function handleEscrowFinish(sequence, owner) {
     try {
-      const result = await signAndSubmit({
+      const { hash } = await signAndSubmit({
         TransactionType: "EscrowFinish",
         Owner: owner || STUDENT_ADDRESS,
         OfferSequence: sequence,
       });
-      const hash = extractTxHash(result);
       addLog({
         type: "release",
         message: `✅ Escrow #${sequence} released — funds sent to consultant`,
@@ -320,12 +317,11 @@ export default function DemoPage() {
   // Called by EscrowList when consultant clicks "Dispute & Reclaim"
   async function handleEscrowCancel(sequence, owner) {
     try {
-      const result = await signAndSubmit({
+      const { hash } = await signAndSubmit({
         TransactionType: "EscrowCancel",
         Owner: owner || STUDENT_ADDRESS,
         OfferSequence: sequence,
       });
-      const hash = extractTxHash(result);
       addLog({
         type: "dispute",
         message: `⚠️ Escrow #${sequence} cancelled — funds returned to customer`,
@@ -444,6 +440,8 @@ export default function DemoPage() {
         </div>
         <WalletConnect
           role={role}
+          walletLabel={walletLabel}
+          isDetecting={isDetecting}
           isInstalled={isInstalled}
           isConnecting={isConnecting}
           address={address}
@@ -555,7 +553,7 @@ export default function DemoPage() {
                 className="w-full mt-4 bg-[#5C47FA] hover:bg-[#4534E0] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3.5 rounded-full transition-all flex items-center justify-center gap-2"
               >
                 {loadingState === "pay" && <Spinner />}
-                {loadingState === "pay" ? "Signing with Crossmark…" : "Send Payment"}
+                {loadingState === "pay" ? `Signing with ${walletLabel ?? "wallet"}…` : "Send Payment"}
               </button>
               {payError && loadingState === null && (
                 <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-3 text-[#EF4444] text-sm">{payError}</div>
@@ -599,7 +597,7 @@ export default function DemoPage() {
                 className="w-full mt-4 bg-[#0D0D0D] hover:bg-[#1f1f1f] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3.5 rounded-full transition-all flex items-center justify-center gap-2"
               >
                 {loadingState === "escrow" && <Spinner />}
-                {loadingState === "escrow" ? "Signing with Crossmark…" : "Lock in Escrow"}
+                {loadingState === "escrow" ? `Signing with ${walletLabel ?? "wallet"}…` : "Lock in Escrow"}
               </button>
               <p className="text-[0.75rem] text-gray-400 text-center mt-2">
                 Both parties must confirm release. Auto-returns if conditions aren't met.
@@ -789,6 +787,10 @@ function Footer() {
         · Signed by{" "}
         <a href="https://crossmark.io" target="_blank" rel="noopener noreferrer" className="text-[#5C47FA] hover:underline">
           Crossmark
+        </a>{" "}
+        /{" "}
+        <a href="https://gemwallet.app" target="_blank" rel="noopener noreferrer" className="text-[#5C47FA] hover:underline">
+          GemWallet
         </a>{" "}
         · Testnet demo
       </p>
