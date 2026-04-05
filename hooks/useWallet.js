@@ -18,35 +18,32 @@ async function crossmarkConnect() {
   const cm = getCrossmark();
   if (!cm) return null;
   let addr = null;
+
+  // Try signIn first (newer Crossmark versions)
   if (typeof cm.signIn === "function") {
     const res = await cm.signIn();
-    addr = res?.response?.data?.address ?? res?.data?.address ?? res?.address;
+    addr = res?.response?.data?.address ?? res?.data?.address;
   }
+
+  // Fallback: sign a no-op transaction to get the account
   if (!addr) {
-    const res = await cm.signAndSubmit({ TransactionType: "AccountSet" });
+    const res = await cm.signAndSubmit({ TransactionType: "AccountSet", Fee: "12" });
     addr =
-      res?.response?.data?.resp?.result?.tx_json?.Account ??
-      res?.response?.data?.resp?.result?.Account;
+      res?.response?.data?.resp?.result?.Account ??
+      res?.request?.body?.Account;
   }
   return addr ?? null;
 }
 
 async function crossmarkSubmit(cm, tx) {
   const raw = await cm.signAndSubmit(tx);
-  const result = raw?.response?.data?.resp?.result;
-  const hash =
-    result?.hash ??
-    result?.tx_json?.hash ??
-    null;
-  const sequence =
-    result?.Sequence ??
-    result?.tx_json?.Sequence ??
-    null;
-  const engineResult = result?.engine_result ?? result?.meta?.TransactionResult;
-  if (engineResult && engineResult !== "tesSUCCESS") {
-    throw new Error(`Transaction failed: ${engineResult}`);
+  if (raw?.response?.data?.resp?.result?.hash) {
+    return {
+      hash: raw.response.data.resp.result.hash,
+      sequence: raw.response.data.resp.result.Sequence ?? null,
+    };
   }
-  return { hash, sequence };
+  throw new Error("Transaction failed or rejected");
 }
 
 // ── GemWallet helpers ─────────────────────────────────────────────────────────

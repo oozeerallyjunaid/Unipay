@@ -73,14 +73,14 @@ async function fetchXrpPrice() {
 function PageTop({ onRefresh, refreshing }) {
   return (
     <>
-      <div className="text-center pt-8 pb-4">
-        <div className="inline-flex items-center gap-2 bg-[#EEF2FF] border border-[#C7D2FE] text-[#5C47FA] text-xs px-4 py-2 rounded-full mb-3 font-semibold">
+      <div className="text-center pt-4 pb-2">
+        <div className="inline-flex items-center gap-2 bg-[#EEF2FF] border border-[#C7D2FE] text-[#5C47FA] text-xs px-4 py-2 rounded-full mb-2 font-semibold">
           <span className="w-1.5 h-1.5 rounded-full bg-[#5C47FA] animate-pulse" />
           Live on XRP Ledger Testnet
         </div>
         <h1 className="text-3xl font-extrabold text-[#0D0D0D]">UniPay XRPL</h1>
       </div>
-      <div className="flex justify-center pb-4">
+      <div className="flex justify-center pb-2">
         <button
           onClick={onRefresh}
           disabled={refreshing}
@@ -92,7 +92,7 @@ function PageTop({ onRefresh, refreshing }) {
           {refreshing ? "Refreshing…" : "Refresh Balances"}
         </button>
       </div>
-      <div className="max-w-5xl mx-auto px-6 pb-6">
+      <div className="max-w-5xl mx-auto px-6 pb-3" style={{ maxHeight: "300px", overflow: "hidden" }}>
         <AnimatedMap />
       </div>
     </>
@@ -189,21 +189,28 @@ export default function DemoPage() {
     prevBal.current = balance;
   }, [balance]);
 
-  // ── Auto-transition after wallet connects ──────────────────────────────────
+  // ── Consultant: skip wallet step, load balance from known address ──────────
   useEffect(() => {
-    if (!address || walletConnected) return;
-    // Fetch balance, then transition to the role interface after 1 second
-    fetchXrplBalance(address).then(setBalance);
+    if (role !== "consultant" || walletConnected) return;
+    setWalletConnected(true);
+    fetchXrplBalance(CONSULTANT_ADDRESS).then((bal) => { if (bal) setBalance(bal); });
+  }, [role, walletConnected]);
+
+  // ── Customer: auto-transition after Crossmark connects ────────────────────
+  useEffect(() => {
+    if (role !== "customer" || !address || walletConnected) return;
+    fetchXrplBalance(address).then((bal) => { if (bal) setBalance(bal); });
     const t = setTimeout(() => setWalletConnected(true), 1000);
     return () => clearTimeout(t);
-  }, [address, walletConnected]);
+  }, [role, address, walletConnected]);
 
   // ── Refresh balance ────────────────────────────────────────────────────────
   const refreshBalance = useCallback(async () => {
-    if (!address) return;
-    const bal = await fetchXrplBalance(address);
+    const target = role === "consultant" ? CONSULTANT_ADDRESS : address;
+    if (!target) return;
+    const bal = await fetchXrplBalance(target);
     if (bal !== null) setBalance(bal);
-  }, [address]);
+  }, [address, role]);
 
   async function handleManualRefresh() {
     setRefreshing(true);
@@ -293,6 +300,9 @@ export default function DemoPage() {
 
   // Called by EscrowList when consultant clicks "Confirm & Release"
   async function handleEscrowFinish(sequence, owner) {
+    if (!address) {
+      return { ok: false, error: "Connect your wallet (as Customer) to sign this transaction." };
+    }
     try {
       const { hash } = await signAndSubmit({
         TransactionType: "EscrowFinish",
@@ -316,6 +326,9 @@ export default function DemoPage() {
 
   // Called by EscrowList when consultant clicks "Dispute & Reclaim"
   async function handleEscrowCancel(sequence, owner) {
+    if (!address) {
+      return { ok: false, error: "Connect your wallet (as Customer) to sign this transaction." };
+    }
     try {
       const { hash } = await signAndSubmit({
         TransactionType: "EscrowCancel",
@@ -374,18 +387,18 @@ export default function DemoPage() {
   // ══════════════════════════════════════════════════════════════════════════════
   if (role === null) {
     return (
-      <div className="min-h-screen bg-[#F5F4FF]">
+      <div className="bg-[#F5F4FF]">
         <div className="max-w-5xl mx-auto px-6">
           <PageTop onRefresh={handleManualRefresh} refreshing={refreshing} />
 
-          <div className="text-center pt-6 pb-10">
+          <div className="text-center pt-3 pb-5">
             <h2 className="text-[2rem] font-extrabold text-[#0D0D0D] leading-tight">
               Who are you today?
             </h2>
             <p className="text-[0.95rem] text-gray-400 mt-2">Select your role to get started</p>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-6 justify-center items-center pb-20">
+          <div className="flex flex-col sm:flex-row gap-6 justify-center items-center pb-8">
 
             {/* Customer card */}
             <button
@@ -430,11 +443,11 @@ export default function DemoPage() {
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
-  // WALLET CONNECTION STEP
+  // WALLET CONNECTION STEP — customers only (consultant skips this)
   // ══════════════════════════════════════════════════════════════════════════════
-  if (!walletConnected) {
+  if (role === "customer" && !walletConnected) {
     return (
-      <div className="min-h-screen bg-[#F5F4FF]">
+      <div className="bg-[#F5F4FF]">
         <div className="max-w-5xl mx-auto px-6">
           <PageTop onRefresh={handleManualRefresh} refreshing={refreshing} />
         </div>
@@ -478,7 +491,7 @@ export default function DemoPage() {
             <div className="text-center">
               <h2 className="text-[1.4rem] font-extrabold text-[#0D0D0D]">Customer Portal</h2>
               <span className="inline-block mt-2 bg-[#EEF2FF] text-[#5C47FA] rounded-full text-[0.78rem] font-semibold px-3.5 py-1 border border-[#C7D2FE]">
-                Crossmark Connected
+                {walletLabel ?? "Wallet"} Connected
               </span>
             </div>
           </div>
@@ -619,7 +632,7 @@ export default function DemoPage() {
   // CONSULTANT INTERFACE
   // ══════════════════════════════════════════════════════════════════════════════
   return (
-    <div className="min-h-screen bg-[#F5F4FF]">
+    <div className="bg-[#F5F4FF]">
       <div className="max-w-5xl mx-auto px-6">
         <PageTop onRefresh={handleManualRefresh} refreshing={refreshing} />
 
@@ -634,7 +647,7 @@ export default function DemoPage() {
           <div className="text-center">
             <h2 className="text-[1.4rem] font-extrabold text-[#0D0D0D]">Consultant Dashboard</h2>
             <span className="inline-block mt-2 bg-[#F0FDF4] text-[#059669] rounded-full text-[0.78rem] font-semibold px-3.5 py-1 border border-[#BBF7D0]">
-              Crossmark Connected
+              Read-only · No wallet needed
             </span>
           </div>
         </div>
@@ -665,10 +678,10 @@ export default function DemoPage() {
             </div>
             {usdValue && <p className="text-[0.88rem] text-gray-400 mt-1">≈ ${usdValue} USD</p>}
             <div className="mt-4 pt-4 border-t border-[#E5E7EB]">
-              <p className="text-[0.68rem] font-semibold text-gray-400 uppercase tracking-wider mb-1">Connected Wallet</p>
+              <p className="text-[0.68rem] font-semibold text-gray-400 uppercase tracking-wider mb-1">Consultant Address</p>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-[#00B67A] flex-shrink-0" />
-                <p className="font-mono text-[0.82rem] text-[#0D0D0D] break-all">{address}</p>
+                <p className="font-mono text-[0.82rem] text-[#0D0D0D] break-all">{CONSULTANT_ADDRESS}</p>
               </div>
             </div>
           </div>
