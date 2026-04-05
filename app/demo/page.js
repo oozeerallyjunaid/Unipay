@@ -13,7 +13,7 @@ import { useWallet } from "../../hooks/useWallet";
 // ── Demo constants ─────────────────────────────────────────────────────────────
 // These are the "story" wallet addresses used as payment destinations.
 // The actual SIGNER is whoever connects via Crossmark.
-const CONSULTANT_ADDRESS = "rN5iynKM9nigWAh2SLGisQaJhgbG1fopzt"; // Junaid — Abu Dhabi
+const CONSULTANT_ADDRESS = "rJSgwFunzn6zC9vjnjqJkApEEbaNofGacq"; // Junaid — Abu Dhabi
 const STUDENT_ADDRESS    = "rBbJMggmFdnAxEo7dm38MPwo9yRv2VVFjb";  // Alice — Mauritius
 const XRPL_WS            = "wss://s.altnet.rippletest.net:51233";
 const RIPPLE_EPOCH       = 946684800; // seconds between Unix epoch and Ripple epoch
