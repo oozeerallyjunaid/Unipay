@@ -109,10 +109,12 @@ export default function DemoPage() {
   const [role, setRole] = useState(null); // null | 'customer' | 'consultant'
 
   // ── Customer payment form state ────────────────────────────────────────────
-  const [amount,       setAmount]       = useState("10");
-  const [milestone,    setMilestone]    = useState("");
-  const [loadingState, setLoadingState] = useState(null); // 'pay' | 'escrow' | null
-  const [payError,     setPayError]     = useState(null);
+  const [amount,          setAmount]          = useState("10");
+  const [milestone,       setMilestone]       = useState("");
+  const [finishAfterSecs, setFinishAfterSecs] = useState(600);    // 10 min default
+  const [cancelAfterSecs, setCancelAfterSecs] = useState(172800); // 48 h default
+  const [loadingState,    setLoadingState]    = useState(null); // 'pay' | 'escrow' | null
+  const [payError,        setPayError]        = useState(null);
 
   // ── Consultant refund state ────────────────────────────────────────────────
   const [refundAmount,  setRefundAmount]  = useState("10");
@@ -213,8 +215,12 @@ export default function DemoPage() {
   function addLog(entry) { setLogs((prev) => [entry, ...prev].slice(0, 30)); }
 
   // ── Escrow state machine ───────────────────────────────────────────────────
-  function handleEscrowCreated(sequence, createdAt, amt, ms) {
-    setEscrows((prev) => [{ sequence, createdAt, amount: amt, milestone: ms, status: "locked" }, ...prev]);
+  function handleEscrowCreated(sequence, createdAt, amt, ms, releaseSecs, disputeSecs) {
+    setEscrows((prev) => [{
+      sequence, createdAt, amount: amt, milestone: ms, status: "locked",
+      releaseWindowSecs: releaseSecs,
+      disputeWindowSecs: disputeSecs,
+    }, ...prev]);
   }
   function handleMarkDone(sequence) {
     setEscrows((prev) => prev.map((e) => e.sequence === sequence ? { ...e, status: "milestone_done" } : e));
@@ -270,7 +276,7 @@ export default function DemoPage() {
       const res = await fetch("/api/escrow/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount }),
+        body: JSON.stringify({ amount, finishAfterSeconds: finishAfterSecs, cancelAfterSeconds: cancelAfterSecs }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Escrow creation failed");
@@ -281,7 +287,7 @@ export default function DemoPage() {
         hash: data.hash,
         timestamp: new Date().toLocaleTimeString(),
       });
-      handleEscrowCreated(data.sequence, Date.now(), amount, milestoneText);
+      handleEscrowCreated(data.sequence, Date.now(), amount, milestoneText, finishAfterSecs, cancelAfterSecs);
       setMilestone("");
       await refreshBalances();
     } catch (err) {
@@ -556,9 +562,67 @@ export default function DemoPage() {
               {!validAmount && amount !== "" && (
                 <p className="text-[#EF4444] text-xs mt-1">Enter a value between 1 and 500</p>
               )}
+
+              {/* Payment Terms — Alice sets the windows */}
+              <div className="mt-4 bg-[#F5F4FF] border border-[#E5E7EB] rounded-xl p-4 space-y-3">
+                <p className="text-[0.78rem] font-semibold text-[#5C47FA]">Payment Terms</p>
+                <div>
+                  <label className="block text-[0.78rem] font-medium text-[#4B5563] mb-1">
+                    Release window — how long Junaid has to complete the work
+                  </label>
+                  <select
+                    value={finishAfterSecs}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      setFinishAfterSecs(v);
+                      if (cancelAfterSecs <= v) setCancelAfterSecs(v * 6);
+                    }}
+                    disabled={loadingState !== null}
+                    className="w-full bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 text-[0.85rem] text-[#0D0D0D] outline-none focus:border-[#5C47FA] transition-all"
+                  >
+                    <option value={120}>2 minutes (demo)</option>
+                    <option value={600}>10 minutes</option>
+                    <option value={1800}>30 minutes</option>
+                    <option value={3600}>1 hour</option>
+                    <option value={86400}>24 hours</option>
+                    <option value={172800}>48 hours</option>
+                    <option value={604800}>1 week</option>
+                    <option value={1209600}>2 weeks</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[0.78rem] font-medium text-[#4B5563] mb-1">
+                    Dispute window — how long you have to raise a dispute
+                  </label>
+                  <select
+                    value={cancelAfterSecs}
+                    onChange={(e) => setCancelAfterSecs(parseInt(e.target.value, 10))}
+                    disabled={loadingState !== null}
+                    className="w-full bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 text-[0.85rem] text-[#0D0D0D] outline-none focus:border-[#5C47FA] transition-all"
+                  >
+                    {[
+                      { label: "10 minutes (demo)", value: 600 },
+                      { label: "1 hour",  value: 3600 },
+                      { label: "24 hours", value: 86400 },
+                      { label: "48 hours", value: 172800 },
+                      { label: "1 week",  value: 604800 },
+                      { label: "2 weeks", value: 1209600 },
+                      { label: "30 days", value: 2592000 },
+                    ]
+                      .filter((o) => o.value > finishAfterSecs)
+                      .map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                  </select>
+                  {cancelAfterSecs <= finishAfterSecs && (
+                    <p className="text-[#EF4444] text-xs mt-1">Dispute window must be longer than release window.</p>
+                  )}
+                </div>
+              </div>
+
               <button
                 onClick={handleCreateEscrow}
-                disabled={loadingState !== null || !validAmount}
+                disabled={loadingState !== null || !validAmount || cancelAfterSecs <= finishAfterSecs}
                 className="w-full mt-4 bg-[#0D0D0D] hover:bg-[#1f1f1f] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3.5 rounded-full transition-all flex items-center justify-center gap-2"
               >
                 {loadingState === "escrow" && <Spinner />}

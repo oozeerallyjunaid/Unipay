@@ -12,10 +12,17 @@ const XRPL_WS = "wss://s.altnet.rippletest.net:51233";
 const RIPPLE_EPOCH_OFFSET = 946684800; // Jan 1 2000 in Unix time
 
 export async function POST(request) {
-  const { amount } = await request.json();
+  const { amount, finishAfterSeconds, cancelAfterSeconds } = await request.json();
 
   if (!amount) {
     return NextResponse.json({ error: "Missing 'amount' field" }, { status: 400 });
+  }
+
+  const finishSecs = parseInt(finishAfterSeconds, 10) || 600;    // default 10 min
+  const cancelSecs = parseInt(cancelAfterSeconds, 10) || 172800; // default 48 h
+
+  if (cancelSecs <= finishSecs) {
+    return NextResponse.json({ error: "cancelAfterSeconds must be greater than finishAfterSeconds" }, { status: 400 });
   }
 
   const studentSeed = process.env.STUDENT_WALLET_SEED;
@@ -39,8 +46,8 @@ export async function POST(request) {
       Account: studentWallet.address,
       Destination: consultantWallet.address,
       Amount: xrpl.xrpToDrops(amount),
-      FinishAfter: nowRipple + 600,    // Consultant can release after 10 minutes
-      CancelAfter: nowRipple + 172800, // Student can dispute after 48 hours
+      FinishAfter: nowRipple + finishSecs,
+      CancelAfter: nowRipple + cancelSecs,
     };
 
     const prepared = await client.autofill(escrowCreateTx);
@@ -61,9 +68,9 @@ export async function POST(request) {
     return NextResponse.json({
       hash: result.result.hash,
       sequence: escrowSequence,
-      finishAfter: nowRipple + 600,
-      cancelAfter: nowRipple + 172800,
-      message: `Escrow created! Release window opens in 10 minutes. Dispute window: 48 hours.`,
+      finishAfter: nowRipple + finishSecs,
+      cancelAfter: nowRipple + cancelSecs,
+      message: `Escrow created. Release window: ${finishSecs}s. Dispute window: ${cancelSecs}s.`,
     });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });

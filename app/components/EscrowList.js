@@ -20,8 +20,8 @@
 
 import { useState, useEffect } from "react";
 
-const RELEASE_WINDOW = 600;    // 10 minutes in seconds
-const DISPUTE_WINDOW = 172800; // 48 hours in seconds
+const DEFAULT_RELEASE_WINDOW = 600;    // fallback: 10 min
+const DEFAULT_DISPUTE_WINDOW = 172800; // fallback: 48 h
 
 function humanTime(seconds) {
   if (seconds <= 0) return "now";
@@ -57,6 +57,9 @@ function EscrowRow({ escrow, role, onMarkDone, onRelease, onRaiseDispute, onIssu
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [escrow.createdAt]);
+
+  const RELEASE_WINDOW = escrow.releaseWindowSecs ?? DEFAULT_RELEASE_WINDOW;
+  const DISPUTE_WINDOW = escrow.disputeWindowSecs ?? DEFAULT_DISPUTE_WINDOW;
 
   const canRelease = secondsElapsed >= RELEASE_WINDOW;
   const canCancel  = secondsElapsed >= DISPUTE_WINDOW;
