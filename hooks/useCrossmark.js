@@ -16,6 +16,13 @@ export function useCrossmark() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Resolve the correct submit fn — newer Crossmark renamed signAndSubmit → signAndSubmitAndWait
+  function getSubmitFn(cm) {
+    if (typeof cm.signAndSubmitAndWait === "function") return cm.signAndSubmitAndWait.bind(cm);
+    if (typeof cm.signAndSubmit       === "function") return cm.signAndSubmit.bind(cm);
+    return null;
+  }
+
   const connect = async () => {
     setIsConnecting(true);
     setError(null);
@@ -23,24 +30,15 @@ export function useCrossmark() {
       const cm = window.crossmark;
       if (!cm) throw new Error("Crossmark not installed");
 
-      let addr = null;
+      const submitFn = getSubmitFn(cm);
+      if (!submitFn) throw new Error("Crossmark: no signAndSubmit method found. Please update your extension.");
 
-      // Try signIn first (newer Crossmark versions)
-      if (typeof cm.signIn === "function") {
-        const res = await cm.signIn();
-        addr = res?.response?.data?.address || res?.data?.address;
-      }
-
-      // Fallback: sign a no-op transaction to get address
-      if (!addr) {
-        const res = await cm.signAndSubmit({
-          TransactionType: "AccountSet",
-          Fee: "12",
-        });
-        addr =
-          res?.response?.data?.resp?.result?.Account ||
-          res?.request?.body?.Account;
-      }
+      const res = await submitFn({ TransactionType: "AccountSet", Fee: "12" });
+      const addr =
+        res?.response?.data?.resp?.result?.Account ??
+        res?.response?.data?.Account ??
+        res?.request?.body?.Account ??
+        null;
 
       if (!addr) throw new Error("Could not get wallet address");
       setAddress(addr);
@@ -54,7 +52,9 @@ export function useCrossmark() {
   const signAndSubmit = async (tx) => {
     const cm = window.crossmark;
     if (!cm) throw new Error("Crossmark not installed");
-    const res = await cm.signAndSubmit(tx);
+    const submitFn = getSubmitFn(cm);
+    if (!submitFn) throw new Error("Crossmark: no signAndSubmit method found. Please update your extension.");
+    const res = await submitFn(tx);
     if (res?.response?.data?.resp?.result?.hash) {
       return {
         hash: res.response.data.resp.result.hash,

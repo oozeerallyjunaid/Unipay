@@ -14,29 +14,35 @@ function getCrossmark() {
   return window.crossmark ?? null;
 }
 
+// Resolve the correct submit function — newer Crossmark renamed signAndSubmit
+// to signAndSubmitAndWait; we try both so we handle all extension versions.
+function getSubmitFn(cm) {
+  if (typeof cm.signAndSubmitAndWait === "function") return cm.signAndSubmitAndWait.bind(cm);
+  if (typeof cm.signAndSubmit       === "function") return cm.signAndSubmit.bind(cm);
+  return null;
+}
+
 async function crossmarkConnect() {
   const cm = getCrossmark();
   if (!cm) return null;
-  let addr = null;
 
-  // Try signIn first (newer Crossmark versions)
-  if (typeof cm.signIn === "function") {
-    const res = await cm.signIn();
-    addr = res?.response?.data?.address ?? res?.data?.address;
-  }
+  const submitFn = getSubmitFn(cm);
+  if (!submitFn) throw new Error("Crossmark: no signAndSubmit method found. Please update your extension.");
 
-  // Fallback: sign a no-op transaction to get the account
-  if (!addr) {
-    const res = await cm.signAndSubmit({ TransactionType: "AccountSet", Fee: "12" });
-    addr =
-      res?.response?.data?.resp?.result?.Account ??
-      res?.request?.body?.Account;
-  }
-  return addr ?? null;
+  // Submit a no-op AccountSet to get the signed account address
+  const res = await submitFn({ TransactionType: "AccountSet", Fee: "12" });
+  const addr =
+    res?.response?.data?.resp?.result?.Account ??
+    res?.response?.data?.Account ??
+    res?.request?.body?.Account ??
+    null;
+  return addr;
 }
 
 async function crossmarkSubmit(cm, tx) {
-  const raw = await cm.signAndSubmit(tx);
+  const submitFn = getSubmitFn(cm);
+  if (!submitFn) throw new Error("Crossmark: no signAndSubmit method found. Please update your extension.");
+  const raw = await submitFn(tx);
   if (raw?.response?.data?.resp?.result?.hash) {
     return {
       hash: raw.response.data.resp.result.hash,
