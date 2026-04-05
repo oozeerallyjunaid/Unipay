@@ -1,25 +1,66 @@
 // app/demo/page.js — Live interactive demo page.
-// Role-selection flow: choose Customer or Consultant, then see that view.
-// All XRPL logic, wallet functions, and transaction handlers are unchanged.
-// Only the UI structure has changed.
+// Architecture: Crossmark wallet signs all transactions client-side.
+// No private keys on the server. All XRPL I/O uses xrpl.js in the browser.
 
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import AnimatedMap from "../components/AnimatedMap";
-import EscrowList  from "../components/EscrowList";
+import EscrowList from "../components/EscrowList";
+import WalletConnect from "../components/WalletConnect";
+import { useCrossmark, extractTxHash, extractTxSequence } from "../../hooks/useCrossmark";
 
-// ── Fetch helpers (unchanged) ─────────────────────────────────────────────────
-async function fetchWallets() {
-  const res = await fetch("/api/wallet");
-  if (!res.ok) throw new Error((await res.json()).error || "Could not load wallets");
-  return res.json();
+// ── Demo constants ─────────────────────────────────────────────────────────────
+// These are the "story" wallet addresses used as payment destinations.
+// The actual SIGNER is whoever connects via Crossmark.
+const CONSULTANT_ADDRESS = "rN5iynKM9nigWAh2SLGisQaJhgbG1fopzt"; // Junaid — Abu Dhabi
+const STUDENT_ADDRESS    = "rBbJMggmFdnAxEo7dm38MPwo9yRv2VVFjb";  // Alice — Mauritius
+const XRPL_WS            = "wss://s.altnet.rippletest.net:51233";
+const RIPPLE_EPOCH       = 946684800; // seconds between Unix epoch and Ripple epoch
+
+// ── XRPL client-side helpers ──────────────────────────────────────────────────
+function xrpToDrops(xrp) {
+  return String(Math.floor(parseFloat(xrp) * 1_000_000));
 }
-async function fetchBalance(address) {
-  const res  = await fetch(`/api/balance?address=${address}`);
-  const data = await res.json();
-  return data.balance ?? "0.00";
+
+function unixToRippleTime(unixSeconds) {
+  return Math.floor(unixSeconds) - RIPPLE_EPOCH;
 }
+
+async function fetchXrplBalance(address) {
+  try {
+    const { Client } = await import("xrpl");
+    const client = new Client(XRPL_WS);
+    await client.connect();
+    const res = await client.request({
+      command: "account_info",
+      account: address,
+      ledger_index: "validated",
+    });
+    await client.disconnect();
+    return (Number(res.result.account_data.Balance) / 1_000_000).toFixed(2);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchXrplTransactions(address) {
+  try {
+    const { Client } = await import("xrpl");
+    const client = new Client(XRPL_WS);
+    await client.connect();
+    const res = await client.request({
+      command: "account_tx",
+      account: address,
+      limit: 10,
+    });
+    await client.disconnect();
+    return res.result.transactions ?? [];
+  } catch {
+    return [];
+  }
+}
+
 async function fetchXrpPrice() {
   try {
     const res  = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=ripple&vs_currencies=usd");
@@ -28,7 +69,7 @@ async function fetchXrpPrice() {
   } catch { return null; }
 }
 
-// ── Page top section (always rendered above role views) ───────────────────────
+// ── Page top section (stable component outside DemoPage) ──────────────────────
 function PageTop({ onRefresh, refreshing }) {
   return (
     <>
@@ -39,8 +80,6 @@ function PageTop({ onRefresh, refreshing }) {
         </div>
         <h1 className="text-3xl font-extrabold text-[#0D0D0D]">UniPay XRPL</h1>
       </div>
-
-      {/* Refresh button */}
       <div className="flex justify-center pb-4">
         <button
           onClick={onRefresh}
@@ -53,8 +92,6 @@ function PageTop({ onRefresh, refreshing }) {
           {refreshing ? "Refreshing…" : "Refresh Balances"}
         </button>
       </div>
-
-      {/* Animated route map */}
       <div className="max-w-5xl mx-auto px-6 pb-6">
         <AnimatedMap />
       </div>
@@ -89,120 +126,103 @@ function AmountInput({ label, value, onChange, disabled }) {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function DemoPage() {
 
-  // ── Wallet state (unchanged) ───────────────────────────────────────────────
-  const [studentAddress,    setStudentAddress]    = useState(null);
-  const [consultantAddress, setConsultantAddress] = useState(null);
-  const [studentBalance,    setStudentBalance]    = useState(null);
-  const [consultantBalance, setConsultantBalance] = useState(null);
-  const [xrpPrice,          setXrpPrice]          = useState(null);
-  const [loading,           setLoading]           = useState(true);
-  const [setupError,        setSetupError]        = useState(null);
-  const [refreshing,        setRefreshing]        = useState(false);
+  // ── Crossmark wallet hook ──────────────────────────────────────────────────
+  const {
+    isInstalled, address, isConnecting, error: cmError,
+    connect, signAndSubmit, disconnect,
+  } = useCrossmark();
 
-  // ── Escrow state (unchanged) ───────────────────────────────────────────────
+  // ── Role + wallet connection flow ──────────────────────────────────────────
+  const [role,            setRole]            = useState(null);  // null | 'customer' | 'consultant'
+  const [walletConnected, setWalletConnected] = useState(false);
+
+  // ── Balances ───────────────────────────────────────────────────────────────
+  const [balance,    setBalance]    = useState(null); // connected wallet balance
+  const [xrpPrice,   setXrpPrice]   = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // ── Escrow state (persisted to localStorage) ───────────────────────────────
   const [escrows, setEscrows] = useState([]);
 
-  // ── Transaction log (unchanged) ───────────────────────────────────────────
+  // ── Transaction log ────────────────────────────────────────────────────────
   const [logs, setLogs] = useState([]);
 
-  // ── Role selection (replaces tab state) ───────────────────────────────────
-  const [role, setRole] = useState(null); // null | 'customer' | 'consultant'
-
-  // ── Customer payment form state ────────────────────────────────────────────
+  // ── Payment form state ─────────────────────────────────────────────────────
   const [amount,       setAmount]       = useState("10");
   const [milestone,    setMilestone]    = useState("");
   const [loadingState, setLoadingState] = useState(null); // 'pay' | 'escrow' | null
   const [payError,     setPayError]     = useState(null);
 
-  // ── Consultant refund state ────────────────────────────────────────────────
-  const [refundAmount,  setRefundAmount]  = useState("10");
-  const [refundLoading, setRefundLoading] = useState(false);
-  const [refundError,   setRefundError]   = useState(null);
-
-  // ── Reset state ────────────────────────────────────────────────────────────
-  const [resetLoading, setResetLoading] = useState(false);
-  const [resetError,   setResetError]   = useState(null);
-
   // ── Balance flash ──────────────────────────────────────────────────────────
-  const [studentFlash,    setStudentFlash]    = useState(null);
-  const [consultantFlash, setConsultantFlash] = useState(null);
-  const prevSBal = useRef(null);
-  const prevCBal = useRef(null);
+  const [balFlash, setBalFlash] = useState(null); // 'up' | 'down' | null
+  const prevBal = useRef(null);
 
-  // ── Persist transaction log ────────────────────────────────────────────────
+  // ── Persist logs ───────────────────────────────────────────────────────────
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("unipay-txlog");
-      if (saved) setLogs(JSON.parse(saved));
-    } catch { /* ignore */ }
+    try { const s = localStorage.getItem("unipay-txlog"); if (s) setLogs(JSON.parse(s)); } catch {}
   }, []);
   useEffect(() => {
-    try { localStorage.setItem("unipay-txlog", JSON.stringify(logs)); }
-    catch { /* ignore */ }
+    try { localStorage.setItem("unipay-txlog", JSON.stringify(logs)); } catch {}
   }, [logs]);
 
-  // Clear errors on role change
-  useEffect(() => { setPayError(null); setRefundError(null); setResetError(null); }, [role]);
-
-  // ── Balance flash effects ──────────────────────────────────────────────────
+  // ── Persist escrows ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (studentBalance == null || prevSBal.current == null) { prevSBal.current = studentBalance; return; }
-    const prev = parseFloat(prevSBal.current), curr = parseFloat(studentBalance);
-    if (curr > prev)      { setStudentFlash("up");   setTimeout(() => setStudentFlash(null), 1500); }
-    else if (curr < prev) { setStudentFlash("down"); setTimeout(() => setStudentFlash(null), 1500); }
-    prevSBal.current = studentBalance;
-  }, [studentBalance]);
-
-  useEffect(() => {
-    if (consultantBalance == null || prevCBal.current == null) { prevCBal.current = consultantBalance; return; }
-    const prev = parseFloat(prevCBal.current), curr = parseFloat(consultantBalance);
-    if (curr > prev)      { setConsultantFlash("up");   setTimeout(() => setConsultantFlash(null), 1500); }
-    else if (curr < prev) { setConsultantFlash("down"); setTimeout(() => setConsultantFlash(null), 1500); }
-    prevCBal.current = consultantBalance;
-  }, [consultantBalance]);
-
-  // ── Initial load (unchanged) ───────────────────────────────────────────────
-  useEffect(() => {
-    async function init() {
-      try {
-        const [wallets, price] = await Promise.all([fetchWallets(), fetchXrpPrice()]);
-        setStudentAddress(wallets.studentAddress);
-        setConsultantAddress(wallets.consultantAddress);
-        setXrpPrice(price);
-        const [sBal, cBal] = await Promise.all([
-          fetchBalance(wallets.studentAddress),
-          fetchBalance(wallets.consultantAddress),
-        ]);
-        setStudentBalance(sBal);
-        setConsultantBalance(cBal);
-      } catch (err) { setSetupError(err.message); }
-      finally { setLoading(false); }
-    }
-    init();
+    try { const s = localStorage.getItem("unipay-escrows"); if (s) setEscrows(JSON.parse(s)); } catch {}
   }, []);
+  useEffect(() => {
+    try { localStorage.setItem("unipay-escrows", JSON.stringify(escrows)); } catch {}
+  }, [escrows]);
 
-  // ── Refresh balances (unchanged) ───────────────────────────────────────────
-  const refreshBalances = useCallback(async () => {
-    if (!studentAddress || !consultantAddress) return;
-    const [sBal, cBal] = await Promise.all([
-      fetchBalance(studentAddress),
-      fetchBalance(consultantAddress),
-    ]);
-    setStudentBalance(sBal);
-    setConsultantBalance(cBal);
-  }, [studentAddress, consultantAddress]);
+  // ── XRP price (once) ───────────────────────────────────────────────────────
+  useEffect(() => { fetchXrpPrice().then(setXrpPrice); }, []);
+
+  // ── Clear errors on role change ────────────────────────────────────────────
+  useEffect(() => { setPayError(null); }, [role]);
+
+  // ── Balance flash ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (balance == null || prevBal.current == null) { prevBal.current = balance; return; }
+    const prev = parseFloat(prevBal.current), curr = parseFloat(balance);
+    if (curr > prev)      { setBalFlash("up");   setTimeout(() => setBalFlash(null), 1500); }
+    else if (curr < prev) { setBalFlash("down"); setTimeout(() => setBalFlash(null), 1500); }
+    prevBal.current = balance;
+  }, [balance]);
+
+  // ── Auto-transition after wallet connects ──────────────────────────────────
+  useEffect(() => {
+    if (!address || walletConnected) return;
+    // Fetch balance, then transition to the role interface after 1 second
+    fetchXrplBalance(address).then(setBalance);
+    const t = setTimeout(() => setWalletConnected(true), 1000);
+    return () => clearTimeout(t);
+  }, [address, walletConnected]);
+
+  // ── Refresh balance ────────────────────────────────────────────────────────
+  const refreshBalance = useCallback(async () => {
+    if (!address) return;
+    const bal = await fetchXrplBalance(address);
+    if (bal !== null) setBalance(bal);
+  }, [address]);
 
   async function handleManualRefresh() {
     setRefreshing(true);
-    await refreshBalances();
+    await refreshBalance();
     setRefreshing(false);
   }
 
   function addLog(entry) { setLogs((prev) => [entry, ...prev].slice(0, 30)); }
 
-  // ── Escrow state machine (unchanged) ──────────────────────────────────────
-  function handleEscrowCreated(sequence, createdAt, amt, ms) {
-    setEscrows((prev) => [{ sequence, createdAt, amount: amt, milestone: ms, status: "locked" }, ...prev]);
+  // ── Confetti ───────────────────────────────────────────────────────────────
+  async function fireConfetti() {
+    try {
+      const confetti = (await import("canvas-confetti")).default;
+      confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 }, colors: ["#5C47FA", "#00B67A", "#F59E0B", "#8B5CF6"] });
+    } catch {}
+  }
+
+  // ── Escrow state machine ───────────────────────────────────────────────────
+  function handleEscrowCreated(sequence, createdAt, amt, ms, owner) {
+    setEscrows((prev) => [{ sequence, createdAt, amount: amt, milestone: ms, status: "locked", owner }, ...prev]);
   }
   function handleMarkDone(sequence) {
     setEscrows((prev) => prev.map((e) => e.sequence === sequence ? { ...e, status: "milestone_done" } : e));
@@ -210,35 +230,33 @@ export default function DemoPage() {
   function handleEscrowRemoved(sequence) {
     setEscrows((prev) => prev.filter((e) => e.sequence !== sequence));
   }
-  function clearEscrows() { setEscrows([]); }
 
-  // ── Confetti (unchanged) ───────────────────────────────────────────────────
-  async function fireConfetti() {
-    try {
-      const confetti = (await import("canvas-confetti")).default;
-      confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 }, colors: ["#5C47FA", "#00B67A", "#F59E0B", "#8B5CF6"] });
-    } catch { /* optional */ }
-  }
+  // ── Derived values ─────────────────────────────────────────────────────────
+  const validAmount = parseFloat(amount) > 0 && parseFloat(amount) <= 500 && amount !== "";
+  const usdValue    = balance && xrpPrice ? (parseFloat(balance) * xrpPrice).toFixed(2) : null;
+  const bColor = balFlash === "up" ? "text-[#00B67A]" : balFlash === "down" ? "text-orange-500" : "text-[#0D0D0D]";
 
-  // ── XRPL transaction handlers (logic unchanged) ────────────────────────────
-
-  const validAmount       = parseFloat(amount) > 0       && parseFloat(amount)       <= 500 && amount       !== "";
-  const validRefundAmount = parseFloat(refundAmount) > 0 && parseFloat(refundAmount) <= 500 && refundAmount !== "";
+  // ── XRPL transaction handlers (all signed via Crossmark) ──────────────────
 
   async function handleDirectPayment() {
-    if (!validAmount) return;
+    if (!validAmount || !address) return;
     setLoadingState("pay"); setPayError(null);
     try {
-      const res = await fetch("/api/pay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from: "student", to: "consultant", amount }),
+      const destination = role === "customer" ? CONSULTANT_ADDRESS : STUDENT_ADDRESS;
+      const result = await signAndSubmit({
+        TransactionType: "Payment",
+        Destination: destination,
+        Amount: xrpToDrops(amount),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Payment failed");
+      const hash = extractTxHash(result);
       await fireConfetti();
-      addLog({ type: "payment", message: `✅ Alice sent ${amount} XRP directly to Junaid`, hash: data.hash, timestamp: new Date().toLocaleTimeString() });
-      await refreshBalances();
+      addLog({
+        type: "payment",
+        message: `✅ Sent ${amount} XRP → ${destination.slice(0, 8)}…`,
+        hash,
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      await refreshBalance();
     } catch (err) {
       setPayError(err.message);
       addLog({ type: "error", message: `❌ Payment failed: ${err.message}`, timestamp: new Date().toLocaleTimeString() });
@@ -246,101 +264,113 @@ export default function DemoPage() {
   }
 
   async function handleCreateEscrow() {
-    if (!validAmount) return;
+    if (!validAmount || !address) return;
     setLoadingState("escrow"); setPayError(null);
     try {
-      const res = await fetch("/api/escrow/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount }),
+      const now = Date.now() / 1000;
+      const result = await signAndSubmit({
+        TransactionType: "EscrowCreate",
+        Destination: CONSULTANT_ADDRESS,
+        Amount: xrpToDrops(amount),
+        FinishAfter: unixToRippleTime(now + 30),   // 30s demo window
+        CancelAfter: unixToRippleTime(now + 90),   // 90s dispute window
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Escrow creation failed");
-      const milestoneText = milestone.trim() || "Service delivery";
+      const hash     = extractTxHash(result);
+      const sequence = extractTxSequence(result);
+      const ms       = milestone.trim() || "Service delivery";
       addLog({
         type: "escrow",
-        message: `🔒 Alice locked ${amount} XRP in escrow #${data.sequence} — Milestone: "${milestoneText}"`,
-        hash: data.hash,
+        message: `🔒 Locked ${amount} XRP in escrow #${sequence} — Milestone: "${ms}"`,
+        hash,
         timestamp: new Date().toLocaleTimeString(),
       });
-      handleEscrowCreated(data.sequence, Date.now(), amount, milestoneText);
+      handleEscrowCreated(sequence, Date.now(), amount, ms, address);
       setMilestone("");
-      await refreshBalances();
+      await refreshBalance();
     } catch (err) {
       setPayError(err.message);
       addLog({ type: "error", message: `❌ Escrow failed: ${err.message}`, timestamp: new Date().toLocaleTimeString() });
     } finally { setLoadingState(null); }
   }
 
-  async function handleRefund() {
-    if (!validRefundAmount) return;
-    setRefundLoading(true); setRefundError(null);
+  // Called by EscrowList when consultant clicks "Confirm & Release"
+  async function handleEscrowFinish(sequence, owner) {
     try {
-      const res = await fetch("/api/pay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from: "consultant", to: "student", amount: refundAmount }),
+      const result = await signAndSubmit({
+        TransactionType: "EscrowFinish",
+        Owner: owner || STUDENT_ADDRESS,
+        OfferSequence: sequence,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Refund failed");
-      await fireConfetti();
-      addLog({ type: "payment", message: `💸 Junaid sent ${refundAmount} XRP refund to Alice`, hash: data.hash, timestamp: new Date().toLocaleTimeString() });
-      await refreshBalances();
-    } catch (err) { setRefundError(err.message); }
-    finally { setRefundLoading(false); }
+      const hash = extractTxHash(result);
+      addLog({
+        type: "release",
+        message: `✅ Escrow #${sequence} released — funds sent to consultant`,
+        hash,
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      handleEscrowRemoved(sequence);
+      await refreshBalance();
+      return { ok: true, hash };
+    } catch (err) {
+      addLog({ type: "error", message: `❌ Release failed: ${err.message}`, timestamp: new Date().toLocaleTimeString() });
+      return { ok: false, error: err.message };
+    }
   }
 
-  async function handleDemoReset() {
-    setResetLoading(true); setResetError(null);
+  // Called by EscrowList when consultant clicks "Dispute & Reclaim"
+  async function handleEscrowCancel(sequence, owner) {
     try {
-      const res = await fetch("/api/pay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from: "consultant", to: "student", amount: "20" }),
+      const result = await signAndSubmit({
+        TransactionType: "EscrowCancel",
+        Owner: owner || STUDENT_ADDRESS,
+        OfferSequence: sequence,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Reset failed");
-      addLog({ type: "payment", message: `🔄 Junaid sent 20 XRP back to Alice (demo reset)`, hash: data.hash, timestamp: new Date().toLocaleTimeString() });
-      clearEscrows();
-      await refreshBalances();
-    } catch (err) { setResetError(err.message); }
-    finally { setResetLoading(false); }
+      const hash = extractTxHash(result);
+      addLog({
+        type: "dispute",
+        message: `⚠️ Escrow #${sequence} cancelled — funds returned to customer`,
+        hash,
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      handleEscrowRemoved(sequence);
+      await refreshBalance();
+      return { ok: true, hash };
+    } catch (err) {
+      addLog({ type: "error", message: `❌ Dispute failed: ${err.message}`, timestamp: new Date().toLocaleTimeString() });
+      return { ok: false, error: err.message };
+    }
   }
 
-  // ── Derived values ─────────────────────────────────────────────────────────
-  const studentUsd    = studentBalance    && xrpPrice ? (parseFloat(studentBalance)    * xrpPrice).toFixed(2) : null;
-  const consultantUsd = consultantBalance && xrpPrice ? (parseFloat(consultantBalance) * xrpPrice).toFixed(2) : null;
-  const sBColor = studentFlash    === "up" ? "text-[#00B67A]" : studentFlash    === "down" ? "text-orange-500" : "text-[#0D0D0D]";
-  const cBColor = consultantFlash === "up" ? "text-[#00B67A]" : consultantFlash === "down" ? "text-orange-500" : "text-[#0D0D0D]";
-
-  // ── Loading state ──────────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#F5F4FF] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-[#5C47FA] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-400 text-sm">Connecting to XRP Ledger Testnet…</p>
-        </div>
-      </div>
-    );
+  // ── Refresh XRPL transaction history into the log ─────────────────────────
+  async function loadTxHistory() {
+    if (!address) return;
+    const txs = await fetchXrplTransactions(address);
+    const entries = txs.slice(0, 5).map((tx) => {
+      const meta  = tx.meta ?? tx.metaData;
+      const txn   = tx.tx   ?? tx.transaction ?? tx;
+      const type  = txn.TransactionType;
+      const ok    = meta?.TransactionResult === "tesSUCCESS";
+      const drops = txn.Amount && typeof txn.Amount === "string" ? txn.Amount : null;
+      const xrp   = drops ? (Number(drops) / 1_000_000).toFixed(2) : null;
+      return {
+        type: ok ? "payment" : "error",
+        message: `${ok ? "✅" : "❌"} ${type}${xrp ? ` · ${xrp} XRP` : ""}`,
+        hash: txn.hash,
+        timestamp: txn.date
+          ? new Date((txn.date + RIPPLE_EPOCH) * 1000).toLocaleTimeString()
+          : "on-chain",
+      };
+    });
+    if (entries.length > 0) setLogs((prev) => [...entries, ...prev].slice(0, 30));
   }
 
-  // ── Setup error state ──────────────────────────────────────────────────────
-  if (setupError) {
-    return (
-      <div className="min-h-screen bg-[#F5F4FF] flex items-center justify-center px-6">
-        <div className="max-w-lg w-full bg-white border border-red-200 rounded-3xl p-8 text-center space-y-4 shadow-sm">
-          <div className="text-5xl">⚠️</div>
-          <h2 className="text-2xl font-bold text-[#0D0D0D]">Setup Required</h2>
-          <p className="text-gray-500 text-sm">{setupError}</p>
-          <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-left text-sm text-gray-600 space-y-2">
-            <p>1. Run <code className="text-[#5C47FA]">npm run dev</code></p>
-            <p>2. Visit <a href="/api/setup" className="text-[#5C47FA] underline">/api/setup</a> to generate wallets</p>
-            <p>3. Add seeds to <code className="text-[#5C47FA]">.env.local</code> and restart</p>
-          </div>
-        </div>
-      </div>
-    );
+  // ── Role switch ────────────────────────────────────────────────────────────
+  function switchRole() {
+    setRole(null);
+    setWalletConnected(false);
+    disconnect();
+    setBalance(null);
+    setPayError(null);
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -352,7 +382,6 @@ export default function DemoPage() {
         <div className="max-w-5xl mx-auto px-6">
           <PageTop onRefresh={handleManualRefresh} refreshing={refreshing} />
 
-          {/* Heading */}
           <div className="text-center pt-6 pb-10">
             <h2 className="text-[2rem] font-extrabold text-[#0D0D0D] leading-tight">
               Who are you today?
@@ -360,7 +389,6 @@ export default function DemoPage() {
             <p className="text-[0.95rem] text-gray-400 mt-2">Select your role to get started</p>
           </div>
 
-          {/* Role cards */}
           <div className="flex flex-col sm:flex-row gap-6 justify-center items-center pb-20">
 
             {/* Customer card */}
@@ -406,6 +434,33 @@ export default function DemoPage() {
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
+  // WALLET CONNECTION STEP
+  // ══════════════════════════════════════════════════════════════════════════════
+  if (!walletConnected) {
+    return (
+      <div className="min-h-screen bg-[#F5F4FF]">
+        <div className="max-w-5xl mx-auto px-6">
+          <PageTop onRefresh={handleManualRefresh} refreshing={refreshing} />
+        </div>
+        <WalletConnect
+          role={role}
+          isInstalled={isInstalled}
+          isConnecting={isConnecting}
+          address={address}
+          error={cmError}
+          onConnect={connect}
+          onBack={switchRole}
+        />
+      </div>
+    );
+  }
+
+  // ── Truncated address for display ──────────────────────────────────────────
+  const shortAddress = address
+    ? `${address.slice(0, 6)}…${address.slice(-4)}`
+    : "—";
+
+  // ══════════════════════════════════════════════════════════════════════════════
   // CUSTOMER INTERFACE
   // ══════════════════════════════════════════════════════════════════════════════
   if (role === "customer") {
@@ -417,7 +472,7 @@ export default function DemoPage() {
           {/* Back link + header */}
           <div className="max-w-[480px] mx-auto mb-6">
             <button
-              onClick={() => setRole(null)}
+              onClick={switchRole}
               className="text-[0.82rem] text-gray-400 hover:text-[#5C47FA] transition-colors mb-4 flex items-center gap-1"
             >
               ← Switch role
@@ -425,7 +480,7 @@ export default function DemoPage() {
             <div className="text-center">
               <h2 className="text-[1.4rem] font-extrabold text-[#0D0D0D]">Customer Portal</h2>
               <span className="inline-block mt-2 bg-[#EEF2FF] text-[#5C47FA] rounded-full text-[0.78rem] font-semibold px-3.5 py-1 border border-[#C7D2FE]">
-                Alice · Student · Mauritius 🇲🇺
+                Crossmark Connected
               </span>
             </div>
           </div>
@@ -435,8 +490,13 @@ export default function DemoPage() {
             <div className="bg-white border border-[#E5E7EB] rounded-[20px] p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1 min-w-0 mr-3">
-                  <p className="text-[0.68rem] font-semibold text-gray-400 uppercase tracking-wider mb-1">Wallet Address</p>
-                  <p className="font-mono text-[0.78rem] text-[#0D0D0D] break-all">{studentAddress || "Loading…"}</p>
+                  <p className="text-[0.68rem] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                    Connected Wallet
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#00B67A] flex-shrink-0" />
+                    <p className="font-mono text-[0.82rem] text-[#0D0D0D]">{address}</p>
+                  </div>
                 </div>
                 <button
                   onClick={handleManualRefresh}
@@ -449,14 +509,22 @@ export default function DemoPage() {
               <div>
                 <p className="text-[0.68rem] font-semibold text-gray-400 uppercase tracking-wider mb-1">XRP Balance</p>
                 <div className="flex items-baseline gap-2">
-                  <span className={`text-[2rem] font-extrabold transition-colors duration-700 ${sBColor}`}>
-                    {studentBalance ? parseFloat(studentBalance).toFixed(2) : "—"}
+                  <span className={`text-[2rem] font-extrabold transition-colors duration-700 ${bColor}`}>
+                    {balance ?? "—"}
                   </span>
                   <span className="text-[0.9rem] text-gray-400 font-medium">XRP</span>
-                  {studentFlash === "up"   && <span className="text-[#00B67A] animate-bounce">↑</span>}
-                  {studentFlash === "down" && <span className="text-orange-500 animate-bounce">↓</span>}
+                  {balFlash === "up"   && <span className="text-[#00B67A] animate-bounce">↑</span>}
+                  {balFlash === "down" && <span className="text-orange-500 animate-bounce">↓</span>}
                 </div>
-                {studentUsd && <p className="text-[0.82rem] text-gray-400 mt-0.5">≈ ${studentUsd} USD</p>}
+                {usdValue && <p className="text-[0.82rem] text-gray-400 mt-0.5">≈ ${usdValue} USD</p>}
+                {balance === "0.00" && (
+                  <p className="text-[0.75rem] text-amber-600 mt-2">
+                    No testnet XRP?{" "}
+                    <a href="https://faucet.tequ.dev" target="_blank" rel="noopener noreferrer" className="text-[#5C47FA] hover:underline">
+                      Get free testnet XRP →
+                    </a>
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -475,13 +543,9 @@ export default function DemoPage() {
                 <p className="font-semibold text-[#0D0D0D] text-[0.88rem]">
                   Junaid — Unistellar Admissions, Abu Dhabi 🇦🇪
                 </p>
+                <p className="font-mono text-[0.72rem] text-gray-400 mt-0.5">{CONSULTANT_ADDRESS}</p>
               </div>
-              <AmountInput
-                label="Amount (XRP)"
-                value={amount}
-                onChange={setAmount}
-                disabled={loadingState !== null}
-              />
+              <AmountInput label="Amount (XRP)" value={amount} onChange={setAmount} disabled={loadingState !== null} />
               {!validAmount && amount !== "" && (
                 <p className="text-[#EF4444] text-xs mt-1">Enter a value between 1 and 500</p>
               )}
@@ -491,7 +555,7 @@ export default function DemoPage() {
                 className="w-full mt-4 bg-[#5C47FA] hover:bg-[#4534E0] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3.5 rounded-full transition-all flex items-center justify-center gap-2"
               >
                 {loadingState === "pay" && <Spinner />}
-                {loadingState === "pay" ? "Sending…" : "Send Payment"}
+                {loadingState === "pay" ? "Signing with Crossmark…" : "Send Payment"}
               </button>
               {payError && loadingState === null && (
                 <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-3 text-[#EF4444] text-sm">{payError}</div>
@@ -507,21 +571,13 @@ export default function DemoPage() {
                 Protected
               </span>
             </div>
-
-            {/* Info banner */}
             <div className="bg-[#F5F4FF] border border-[#C7D2FE] rounded-xl p-3.5 mb-4">
               <p className="text-[0.8rem] text-[#4338CA]">
                 Funds are locked on-chain and only release when your consultant completes the agreed milestone.
               </p>
             </div>
-
             <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-6">
-              <AmountInput
-                label="Amount (XRP)"
-                value={amount}
-                onChange={setAmount}
-                disabled={loadingState !== null}
-              />
+              <AmountInput label="Amount (XRP)" value={amount} onChange={setAmount} disabled={loadingState !== null} />
               <div className="mt-3">
                 <label className="block text-[0.82rem] font-medium text-[#4B5563] mb-1">
                   Milestone Description
@@ -530,8 +586,7 @@ export default function DemoPage() {
                   placeholder='e.g. "Personal statement submitted"'
                   value={milestone} onChange={(e) => setMilestone(e.target.value)}
                   disabled={loadingState !== null}
-                  maxLength={120}
-                  rows={3}
+                  maxLength={120} rows={3}
                   className="w-full bg-[#F5F4FF] border-[1.5px] border-[#E5E7EB] focus:border-[#5C47FA] focus:bg-white rounded-xl px-4 py-3 text-[0.88rem] text-[#0D0D0D] outline-none transition-all resize-none placeholder:text-gray-300"
                 />
               </div>
@@ -544,7 +599,7 @@ export default function DemoPage() {
                 className="w-full mt-4 bg-[#0D0D0D] hover:bg-[#1f1f1f] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3.5 rounded-full transition-all flex items-center justify-center gap-2"
               >
                 {loadingState === "escrow" && <Spinner />}
-                {loadingState === "escrow" ? "Creating Escrow…" : "Lock in Escrow"}
+                {loadingState === "escrow" ? "Signing with Crossmark…" : "Lock in Escrow"}
               </button>
               <p className="text-[0.75rem] text-gray-400 text-center mt-2">
                 Both parties must confirm release. Auto-returns if conditions aren't met.
@@ -556,7 +611,7 @@ export default function DemoPage() {
           </div>
         </div>
 
-        <TransactionLog logs={logs} setLogs={setLogs} />
+        <TransactionLog logs={logs} setLogs={setLogs} onLoadFromChain={loadTxHistory} />
         <Footer />
       </div>
     );
@@ -568,12 +623,12 @@ export default function DemoPage() {
   return (
     <div className="min-h-screen bg-[#F5F4FF]">
       <div className="max-w-5xl mx-auto px-6">
-        <PageTop />
+        <PageTop onRefresh={handleManualRefresh} refreshing={refreshing} />
 
         {/* Back link + header */}
         <div className="max-w-[560px] mx-auto mb-6">
           <button
-            onClick={() => setRole(null)}
+            onClick={switchRole}
             className="text-[0.82rem] text-gray-400 hover:text-[#5C47FA] transition-colors mb-4 flex items-center gap-1"
           >
             ← Switch role
@@ -581,7 +636,7 @@ export default function DemoPage() {
           <div className="text-center">
             <h2 className="text-[1.4rem] font-extrabold text-[#0D0D0D]">Consultant Dashboard</h2>
             <span className="inline-block mt-2 bg-[#F0FDF4] text-[#059669] rounded-full text-[0.78rem] font-semibold px-3.5 py-1 border border-[#BBF7D0]">
-              Junaid · Unistellar Admissions · Abu Dhabi 🇦🇪
+              Crossmark Connected
             </span>
           </div>
         </div>
@@ -602,20 +657,21 @@ export default function DemoPage() {
                 {refreshing ? "Refreshing…" : "Refresh"}
               </button>
             </div>
-
             <div className="flex items-baseline gap-2 mt-4">
-              <span className={`text-[2.8rem] font-extrabold leading-none transition-colors duration-700 ${cBColor}`}>
-                {consultantBalance ? parseFloat(consultantBalance).toFixed(2) : "—"}
+              <span className={`text-[2.8rem] font-extrabold leading-none transition-colors duration-700 ${bColor}`}>
+                {balance ?? "—"}
               </span>
               <span className="text-[1rem] text-gray-400 font-medium">XRP</span>
-              {consultantFlash === "up"   && <span className="text-[#00B67A] text-xl animate-bounce">↑</span>}
-              {consultantFlash === "down" && <span className="text-orange-500 text-xl animate-bounce">↓</span>}
+              {balFlash === "up"   && <span className="text-[#00B67A] text-xl animate-bounce">↑</span>}
+              {balFlash === "down" && <span className="text-orange-500 text-xl animate-bounce">↓</span>}
             </div>
-            {consultantUsd && <p className="text-[0.88rem] text-gray-400 mt-1">≈ ${consultantUsd} USD</p>}
-
+            {usdValue && <p className="text-[0.88rem] text-gray-400 mt-1">≈ ${usdValue} USD</p>}
             <div className="mt-4 pt-4 border-t border-[#E5E7EB]">
-              <p className="text-[0.68rem] font-semibold text-gray-400 uppercase tracking-wider mb-1">Wallet Address</p>
-              <p className="font-mono text-[0.82rem] text-[#0D0D0D] break-all">{consultantAddress || "Loading…"}</p>
+              <p className="text-[0.68rem] font-semibold text-gray-400 uppercase tracking-wider mb-1">Connected Wallet</p>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#00B67A] flex-shrink-0" />
+                <p className="font-mono text-[0.82rem] text-[#0D0D0D] break-all">{address}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -632,103 +688,72 @@ export default function DemoPage() {
             <EscrowList
               escrows={escrows}
               onMarkDone={handleMarkDone}
-              onRelease={(seq) => { handleEscrowRemoved(seq); refreshBalances(); }}
-              onDispute={(seq)  => { handleEscrowRemoved(seq); refreshBalances(); }}
+              onRelease={handleEscrowFinish}
+              onDispute={handleEscrowCancel}
               onLog={addLog}
-              onBalanceRefresh={refreshBalances}
             />
-          </div>
-        </div>
-
-        {/* Refund Section */}
-        <div className="max-w-[560px] mx-auto mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <span className="font-bold text-[1rem] text-[#0D0D0D]">Send a Refund</span>
-            <span className="bg-[#FEF3C7] text-[#92400E] rounded-full text-[0.72rem] font-semibold px-2.5 py-0.5">
-              Optional
-            </span>
-          </div>
-          <div className="bg-white border border-[#E5E7EB] rounded-[16px] p-6">
-            <p className="text-[0.82rem] text-[#6B7280] mb-4">
-              If a milestone wasn't completed or a refund is owed, send XRP directly back to the student.
-            </p>
-            <div className="mb-3">
-              <p className="text-[0.75rem] text-gray-400 mb-0.5">Refunding to:</p>
-              <p className="font-semibold text-[#0D0D0D] text-[0.88rem]">Alice · Student · Mauritius 🇲🇺</p>
-            </div>
-            <AmountInput
-              label="Amount (XRP)"
-              value={refundAmount}
-              onChange={setRefundAmount}
-              disabled={refundLoading}
-            />
-            {!validRefundAmount && refundAmount !== "" && (
-              <p className="text-[#EF4444] text-xs mt-1">Enter a value between 1 and 500</p>
-            )}
-            <button
-              onClick={handleRefund}
-              disabled={refundLoading || !validRefundAmount}
-              className="w-full mt-4 bg-[#FEF2F2] hover:bg-[#EF4444] border border-[#FECACA] hover:border-[#EF4444] text-[#EF4444] hover:text-white font-semibold py-3.5 rounded-full transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {refundLoading && <Spinner />}
-              {refundLoading ? "Sending Refund…" : "Send Refund"}
-            </button>
-            {refundError && (
-              <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-3 text-[#EF4444] text-sm">{refundError}</div>
-            )}
           </div>
         </div>
 
         {/* Reset Demo */}
         <div className="max-w-[560px] mx-auto mb-16">
           <button
-            onClick={handleDemoReset}
-            disabled={resetLoading}
-            className="w-full bg-[#F9FAFB] hover:bg-[#FEF2F2] border border-[#E5E7EB] hover:border-red-200 text-[#6B7280] hover:text-[#EF4444] font-medium py-3 rounded-full transition-all text-[0.88rem] disabled:opacity-50 flex items-center justify-center gap-2"
+            onClick={() => {
+              setEscrows([]);
+              localStorage.removeItem("unipay-escrows");
+              addLog({ type: "payment", message: "🔄 Escrow list cleared (demo reset)", timestamp: new Date().toLocaleTimeString() });
+            }}
+            className="w-full bg-[#F9FAFB] hover:bg-[#FEF2F2] border border-[#E5E7EB] hover:border-red-200 text-[#6B7280] hover:text-[#EF4444] font-medium py-3 rounded-full transition-all text-[0.88rem] flex items-center justify-center gap-2"
           >
-            {resetLoading && <Spinner />}
-            {resetLoading ? "Resetting…" : "Reset Demo (Send 20 XRP to Alice)"}
+            Reset Demo (Clear Escrow List)
           </button>
-          {resetError && (
-            <div className="mt-2 bg-red-50 border border-red-200 rounded-xl p-3 text-[#EF4444] text-sm text-center">{resetError}</div>
-          )}
         </div>
       </div>
 
-      <TransactionLog logs={logs} setLogs={setLogs} />
+      <TransactionLog logs={logs} setLogs={setLogs} onLoadFromChain={loadTxHistory} />
       <Footer />
     </div>
   );
 }
 
-// ── Transaction log (shared across all views) ─────────────────────────────────
-function TransactionLog({ logs, setLogs }) {
+// ── Transaction log ────────────────────────────────────────────────────────────
+function TransactionLog({ logs, setLogs, onLoadFromChain }) {
   return (
     <div className="max-w-5xl mx-auto px-6 pb-16">
       <div className="bg-white border border-[#E5E7EB] rounded-2xl p-5 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-[1rem] font-bold text-[#0D0D0D]">Transaction Log</h2>
-          {logs.length > 0 && (
-            <button
-              onClick={() => { setLogs([]); localStorage.removeItem("unipay-txlog"); }}
-              className="text-xs text-gray-300 hover:text-gray-500 transition-colors"
-            >
-              Clear
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {onLoadFromChain && (
+              <button
+                onClick={onLoadFromChain}
+                className="text-xs text-[#5C47FA] hover:text-[#4534E0] transition-colors font-medium"
+              >
+                Load from chain
+              </button>
+            )}
+            {logs.length > 0 && (
+              <button
+                onClick={() => { setLogs([]); localStorage.removeItem("unipay-txlog"); }}
+                className="text-xs text-gray-300 hover:text-gray-500 transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
         {logs.length === 0 ? (
           <p className="text-gray-300 text-sm text-center py-4">
-            No transactions yet. Choose a role above and try sending XRP.
+            No transactions yet. Connect a wallet and send XRP.
           </p>
         ) : (
           <div className="space-y-2">
             {logs.map((log, i) => (
               <div key={i} className={`flex items-start justify-between gap-3 p-3 rounded-xl text-sm border ${
-                log.type === "error"     ? "bg-red-50 border-red-200 text-red-600"             :
-                log.type === "dispute"   ? "bg-orange-50 border-orange-200 text-orange-700"   :
-                log.type === "release"   ? "bg-emerald-50 border-emerald-200 text-emerald-700":
-                log.type === "milestone" ? "bg-[#EEF2FF] border-[#C7D2FE] text-[#5C47FA]"    :
+                log.type === "error"     ? "bg-red-50 border-red-200 text-red-600"              :
+                log.type === "dispute"   ? "bg-orange-50 border-orange-200 text-orange-700"    :
+                log.type === "release"   ? "bg-emerald-50 border-emerald-200 text-emerald-700" :
+                log.type === "milestone" ? "bg-[#EEF2FF] border-[#C7D2FE] text-[#5C47FA]"     :
                 "bg-gray-50 border-gray-100 text-gray-700"
               }`}>
                 <div className="flex-1 min-w-0">
@@ -755,9 +780,18 @@ function TransactionLog({ logs, setLogs }) {
 
 function Footer() {
   return (
-    <footer className="border-t border-[#E5E7EB] text-center py-5 text-xs text-gray-400">
-      Demo runs on XRP Ledger <strong className="text-gray-500">Testnet</strong> — no real money used. ·
-      Junaid · Unistellar Admissions Consulting · Abu Dhabi
+    <footer className="border-t border-[#E5E7EB] bg-white py-8 px-6 text-center">
+      <p className="text-gray-400 text-sm">
+        Built on{" "}
+        <a href="https://xrpl.org" target="_blank" rel="noopener noreferrer" className="text-[#5C47FA] hover:underline">
+          XRP Ledger
+        </a>{" "}
+        · Signed by{" "}
+        <a href="https://crossmark.io" target="_blank" rel="noopener noreferrer" className="text-[#5C47FA] hover:underline">
+          Crossmark
+        </a>{" "}
+        · Testnet demo
+      </p>
     </footer>
   );
 }
