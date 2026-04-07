@@ -48,7 +48,7 @@ const cases = [
   },
   {
     flag: "🇮🇳",
-    studentName: "Pranav Mehta",
+    studentName: "Alicia Jolicoeur",
     studentLocation: "Mumbai, India",
     consultantLocation: "Abu Dhabi, UAE",
     university: "Yale University",
@@ -58,7 +58,7 @@ const cases = [
     problem:
       "Pranav's bank charged $52 per international wire transfer to the UAE, and his payment was flagged for AML review — a compliance check that froze the funds for 10 days. He was applying to Yale's highly competitive MSc Global Affairs programme and could not afford any delays to his application timeline.",
     solution:
-      "Pranav switched to UniPay XRPL for instant, borderless payments. He created a single escrow with the milestone 'Yale application submitted and confirmed'. Junaid marked the milestone complete after submission, and Pranav confirmed the release — all within minutes of the application going in.",
+      "Alicia switched to UniPay XRPL for instant, borderless payments. She created a single escrow with the milestone 'Yale application submitted and confirmed'. Junaid marked the milestone complete after submission, and Alicia confirmed the release — all within minutes of the application going in.",
     outcome:
       "This scenario mirrors our live demo flow exactly. Click below to watch a real XRP escrow payment happen in seconds on the XRP Ledger Testnet.",
     escrowPeriod: "30 seconds (demo)",
@@ -192,7 +192,7 @@ export default function UseCasesPage() {
                     href="/demo"
                     className="block w-full text-center bg-[#5C47FA] hover:bg-[#4A38E0] text-white font-bold py-3 rounded-full transition-all"
                   >
-                    🚀 Watch Pranav's Payment Live
+                    🚀 Watch Alicia's Payment Live
                   </Link>
                 )}
               </div>
