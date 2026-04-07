@@ -47,16 +47,16 @@ const cases = [
     accentColor: "emerald",
   },
   {
-    flag: "🇮🇳",
+    flag: "🇲🇺",
     studentName: "Alicia Jolicoeur",
-    studentLocation: "Mumbai, India",
+    studentLocation: "Curepipe, Mauritius",
     consultantLocation: "Abu Dhabi, UAE",
     university: "Yale University",
     course: "MSc Global Affairs",
     consultingFee: "$800",
     xrpAmount: "~267 XRP",
     problem:
-      "Alicia's bank charged $52 per international wire transfer to the UAE, and her payment was flagged for AML review — a compliance check that froze the funds for 10 days. She was applying to Yale's highly competitive MSc Global Affairs programme and could not afford any delays to her application timeline.",
+      "Alicia's Mauritian bank charged $52 per international wire transfer to the UAE, and her payment was flagged for AML review — a compliance check that froze the funds for 10 days. She was applying to Yale's highly competitive MSc Global Affairs programme and could not afford any delays to her application timeline.",
     solution:
       "Alicia switched to UniPay XRPL for instant, borderless payments. She created a single escrow with the milestone 'Yale application submitted and confirmed'. Junaid marked the milestone complete after submission, and Alicia confirmed the release — all within minutes of the application going in.",
     outcome:
@@ -107,7 +107,7 @@ export default function UseCasesPage() {
           </div>
           <h1 className="text-4xl font-extrabold text-[#0D0D0D] mb-4">Use Cases</h1>
           <p className="text-gray-500 text-lg max-w-xl mx-auto">
-            Two Mauritian students, one Indian student. Three US universities.
+            Three Mauritian students. Three US universities.
             One solution for borderless education payments.
           </p>
         </div>
