@@ -111,8 +111,8 @@ export default function DemoPage() {
   // ── Customer payment form state ────────────────────────────────────────────
   const [amount,          setAmount]          = useState("10");
   const [milestone,       setMilestone]       = useState("");
-  const [finishAfterSecs, setFinishAfterSecs] = useState(600);    // 10 min default
-  const [cancelAfterSecs, setCancelAfterSecs] = useState(172800); // 48 h default
+  const [finishAfterSecs, setFinishAfterSecs] = useState(60);  // 60s default (demo)
+  const [cancelAfterSecs, setCancelAfterSecs] = useState(180); // 180s default (demo)
   const [loadingState,    setLoadingState]    = useState(null); // 'pay' | 'escrow' | null
   const [payError,        setPayError]        = useState(null);
 
@@ -580,7 +580,8 @@ export default function DemoPage() {
                     disabled={loadingState !== null}
                     className="w-full bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 text-[0.85rem] text-[#0D0D0D] outline-none focus:border-[#5C47FA] transition-all"
                   >
-                    <option value={120}>2 minutes (demo)</option>
+                    <option value={60}>1 minute (demo)</option>
+                    <option value={120}>2 minutes</option>
                     <option value={600}>10 minutes</option>
                     <option value={1800}>30 minutes</option>
                     <option value={3600}>1 hour</option>
@@ -601,7 +602,8 @@ export default function DemoPage() {
                     className="w-full bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 text-[0.85rem] text-[#0D0D0D] outline-none focus:border-[#5C47FA] transition-all"
                   >
                     {[
-                      { label: "10 minutes (demo)", value: 600 },
+                      { label: "3 minutes (demo)", value: 180 },
+                      { label: "10 minutes", value: 600 },
                       { label: "1 hour",  value: 3600 },
                       { label: "24 hours", value: 86400 },
                       { label: "48 hours", value: 172800 },

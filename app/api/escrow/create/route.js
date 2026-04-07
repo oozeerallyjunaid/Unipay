@@ -18,8 +18,8 @@ export async function POST(request) {
     return NextResponse.json({ error: "Missing 'amount' field" }, { status: 400 });
   }
 
-  const finishSecs = parseInt(finishAfterSeconds, 10) || 600;    // default 10 min
-  const cancelSecs = parseInt(cancelAfterSeconds, 10) || 172800; // default 48 h
+  const finishSecs = parseInt(finishAfterSeconds, 10) || 60;  // default 60s (demo)
+  const cancelSecs = parseInt(cancelAfterSeconds, 10)  || 180; // default 180s (demo)
 
   if (cancelSecs <= finishSecs) {
     return NextResponse.json({ error: "cancelAfterSeconds must be greater than finishAfterSeconds" }, { status: 400 });

@@ -20,8 +20,8 @@
 
 import { useState, useEffect } from "react";
 
-const DEFAULT_RELEASE_WINDOW = 600;    // fallback: 10 min
-const DEFAULT_DISPUTE_WINDOW = 172800; // fallback: 48 h
+const DEFAULT_RELEASE_WINDOW = 60;  // fallback: 60s (demo)
+const DEFAULT_DISPUTE_WINDOW = 180; // fallback: 180s (demo)
 
 function humanTime(seconds) {
   if (seconds <= 0) return "now";
