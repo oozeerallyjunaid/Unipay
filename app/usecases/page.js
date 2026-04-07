@@ -56,7 +56,7 @@ const cases = [
     consultingFee: "$800",
     xrpAmount: "~267 XRP",
     problem:
-      "Pranav's bank charged $52 per international wire transfer to the UAE, and his payment was flagged for AML review — a compliance check that froze the funds for 10 days. He was applying to Yale's highly competitive MSc Global Affairs programme and could not afford any delays to his application timeline.",
+      "Alicia's bank charged $52 per international wire transfer to the UAE, and her payment was flagged for AML review — a compliance check that froze the funds for 10 days. She was applying to Yale's highly competitive MSc Global Affairs programme and could not afford any delays to her application timeline.",
     solution:
       "Alicia switched to UniPay XRPL for instant, borderless payments. She created a single escrow with the milestone 'Yale application submitted and confirmed'. Junaid marked the milestone complete after submission, and Alicia confirmed the release — all within minutes of the application going in.",
     outcome:
